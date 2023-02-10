@@ -21,7 +21,6 @@ jobs:
         npm run build --if-present
         npm test      
     - name: publish
-      env:
-        NODE_AUTH_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
       run: |
+        echo "//registry.npmjs.org/:_authToken=\${{ secrets.PERSONAL_ACCESS_TOKEN }}" > ~/.npmrc
         npm run deploy

@@ -1,6 +1,6 @@
 {
   "name": "sequelize-kishi-cache",
-  "version": "0.0.1-dev",
+  "version": "0.0.2-dev",
   "description": "npm package for caching sequelize queries with data invalidation",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
