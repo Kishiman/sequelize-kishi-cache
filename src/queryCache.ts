@@ -1,5 +1,5 @@
 
-import { Model, Op, Association, FindOptions, IncludeOptions, ModelStatic } from "sequelize";
+import { Model, Op, Association, FindOptions, IncludeOptions, ModelStatic, CountOptions, GroupedCountResultItem } from "sequelize";
 import { cloneDeep } from "lodash";
 
 import { CacheLib, CachePayLoad } from "./utils/cache";
@@ -30,12 +30,27 @@ function FindOptionsToDependencies(Model: SeqModel, options: FindOptions) {
 }
 
 export class QueryCacheService {
-	static CacheModel(_model: typeof Model, lifespan: number = 60) {
+	private lifespan: number = 60
+	private hookedModels: { [key: string]: SeqModel } = {}
+	constructor(lifespan: number = 60) {
+		this.lifespan = lifespan
+	}
+
+
+	cacheModel(_model: typeof Model, lifespan?: number) {
+		const model: SeqModel = _model as SeqModel;
+
+		for (const dep in model.sequelize?.models || {}) {
+			if (!this.hookedModels[dep]) {
+				this.hookModel(model.sequelize.models[dep])
+			}
+		}
+		lifespan = lifespan || this.lifespan
 		async function findAll(this: SeqModel, options?: FindOptions | undefined): Promise<Model[] | Model | null> {
 			options = options || {}
 			let cacheObject: any = ObjectLib.SymbolsToKeys(options, Op as any)
 			if (options.transaction) {
-				return await (this as any).__findAll(options) as Model[] | Model | null
+				return await (this as any).cache_findAll(options) as Model[] | Model | null
 			}
 			const cacheKey = this.name + ":" + JSON.stringify(cacheObject)
 			const cache = await CacheLib.GetOrPromise(cacheKey, { timeout: lifespan })
@@ -45,7 +60,7 @@ export class QueryCacheService {
 			const sub = cache as PromiseSub<[Model[] | Model | null, string[]]>
 			try {
 				const dependencies = FindOptionsToDependencies(this, options)
-				const result = await (this as any).__findAll(options) as Model[] | Model | null
+				const result = await (this as any).cache_findAll(options) as Model[] | Model | null
 				sub.resolve([result, dependencies])
 				return result
 			} catch (error) {
@@ -53,10 +68,39 @@ export class QueryCacheService {
 				throw error
 			}
 		}
-		const model: SeqModel = _model as SeqModel;
+		async function count(this: SeqModel, options?: CountOptions | undefined): Promise<number | GroupedCountResultItem[]> {
+			options = options || {}
+			let cacheObject: any = ObjectLib.SymbolsToKeys(options, Op as any)
+			if (options.transaction) {
+				return await (this as any).cache_count(options) as number | GroupedCountResultItem[]
+			}
+			const cacheKey = this.name + ":" + JSON.stringify(cacheObject)
+			const cache = await CacheLib.GetOrPromise(cacheKey, { timeout: lifespan })
+			if ("data" in (cache as CachePayLoad)) {
+				return cloneDeep((cache as CachePayLoad).data) as number | GroupedCountResultItem[]
+			}
+			const sub = cache as PromiseSub<[number | GroupedCountResultItem[], string[]]>
+			try {
+				const dependencies = FindOptionsToDependencies(this, options)
+				const result = await (this as any).cache_count(options) as number | GroupedCountResultItem[]
+				sub.resolve([result, dependencies])
+				return result
+			} catch (error) {
+				sub.reject(error)
+				throw error
+			}
+		}
 		//Implement Cache
-		(model as any).__findAll = (model as any).findAll.bind(model);
+		(model as any).cache_findAll = (model as any).findAll.bind(model);
 		(model as any).findAll = findAll.bind(model);
+
+		(model as any).cache_count = (model as any).count.bind(model);
+		(model as any).count = count.bind(model);
+
+	}
+	hookModel(_model: typeof Model) {
+		const model: SeqModel = _model as SeqModel;
+		if (this.hookedModels[model.name]) return
 		model.afterCreate((row, options) => {
 			if (options.transaction)
 				if (options.transaction)
@@ -94,6 +138,7 @@ export class QueryCacheService {
 			else
 				CacheLib.ClearCacheByTag(model.name)
 		})
+		this.hookedModels[model.name] = model
 	}
 }
 
