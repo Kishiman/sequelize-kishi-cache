@@ -1,4 +1,31 @@
 
+function detectCycle(obj: { [key in string]: string[] }, key: string, visited: Set<string>, path: string[]): void {
+	visited.add(key);
+	path.push(key);
+
+	const dependencies = obj[key] || [];
+
+	for (const dep of dependencies) {
+		if (!visited.has(dep)) {
+			detectCycle(obj, dep, visited, path);
+		} else if (path.includes(dep)) {
+			throw new Error(`Cycle detected: ${path.join(' -> ')} -> ${dep}`);
+		}
+	}
+
+	path.pop();
+}
+
+export function ensureNoCycle(obj: { [key in string]: string[] }): void {
+	const visited = new Set<string>();
+	const keys = Object.keys(obj);
+
+	for (const key of keys) {
+		if (!visited.has(key)) {
+			detectCycle(obj, key, visited, []);
+		}
+	}
+}
 export function pathHead(path: string): [string, string, string[]] {
 	const parts = path.split(".")
 	const head = parts[0]

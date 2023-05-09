@@ -1,10 +1,11 @@
 
-import { Model, Op, Association, FindOptions, IncludeOptions, ModelStatic, CountOptions, GroupedCountResultItem } from "sequelize";
+import { Model, Op, Association, FindOptions, IncludeOptions, ModelStatic, CountOptions, GroupedCountResultItem, Transactionable, CreateOptions, Sequelize } from "sequelize";
 import { cloneDeep } from "lodash";
 
 import { CacheLib, CachePayLoad } from "./utils/cache";
 import { PromiseSub } from "./utils/promise";
 import * as ObjectLib from "./utils/object";
+import { ensureNoCycle } from "./utils/string";
 
 type SeqModel = typeof Model & ModelStatic<Model>
 
@@ -31,20 +32,70 @@ function FindOptionsToDependencies(Model: SeqModel, options: FindOptions) {
 
 export class QueryCacheService {
 	private lifespan: number = 60
-	private hookedModels: { [key: string]: SeqModel } = {}
-	constructor(lifespan: number = 60) {
+	private deleteCascadeMap: { [key in string]: string[] }
+	private deleteSetNullMap: { [key in string]: string[] }
+	private sequelize: Sequelize
+	constructor(sequelize: Sequelize, lifespan: number = 60) {
+		this.sequelize = sequelize
 		this.lifespan = lifespan
+		for (const modelName in sequelize.models || {}) {
+			this.hookModel(sequelize.models[modelName])
+			this.handleCascade(sequelize.models[modelName])
+		}
+		ensureNoCycle(this.deleteCascadeMap)
+	}
+	invalidateData(model: SeqModel, transaction?: CreateOptions<any>["transaction"]) {
+		if (transaction)
+			transaction?.afterCommit(() => CacheLib.ClearCacheByTag(model.name))
+		else
+			CacheLib.ClearCacheByTag(model.name)
+	}
+	OnDelete(model: SeqModel, transaction?: CreateOptions<any>["transaction"]) {
+		this.invalidateData(model, transaction)
+		for (const modelName of this.deleteSetNullMap?.[model.name] || []) {
+			this.invalidateData(this.sequelize.models[modelName], transaction)
+		}
+		for (const modelName of this.deleteCascadeMap?.[model.name] || []) {
+			this.OnDelete(this.sequelize.models[modelName], transaction)
+		}
+
+	}
+
+	handleCascade(model: SeqModel) {
+		const OnDeleteForeignKeys = Object.keys(model.rawAttributes).filter(name =>
+			model.rawAttributes[name].references && ["cascade", "no action", "set null"].includes(model.rawAttributes[name]?.onDelete?.toLowerCase() || "")
+		)
+		for (const sourceKey of OnDeleteForeignKeys) {
+			const { references, onDelete = "", allowNull = true } = model.rawAttributes[sourceKey]
+			const key = model.name + "." + sourceKey
+			let Target: SeqModel;
+			if (typeof references == "string") {
+				Target = model.sequelize.models[references] as SeqModel
+			} else if (typeof (references?.model) == "string") {
+				Target = model.sequelize.models[references.model] as SeqModel
+			} else if (references?.model?.name) {
+				Target = model.sequelize.models[references.model.name] as SeqModel
+			}
+			else {
+				console.error(key, { references, onDelete, allowNull });
+				continue
+			}
+			if (onDelete == "cascade") {
+				this.deleteCascadeMap[model.name] = this.deleteCascadeMap[model.name] || []
+				this.deleteCascadeMap[model.name].push(Target.name)
+				this.deleteCascadeMap[model.name] = [...new Set(this.deleteCascadeMap[model.name])]
+			} else if (onDelete == "set null") {
+				this.deleteSetNullMap[model.name] = this.deleteSetNullMap[model.name] || []
+				this.deleteSetNullMap[model.name].push(Target.name)
+				this.deleteSetNullMap[model.name] = [...new Set(this.deleteSetNullMap[model.name])]
+			}
+		}
 	}
 
 
 	cacheModel(_model: typeof Model, lifespan?: number) {
-		const model: SeqModel = _model as SeqModel;
+		const model = _model as SeqModel;
 
-		for (const dep in model.sequelize?.models || {}) {
-			if (!this.hookedModels[dep]) {
-				this.hookModel(model.sequelize.models[dep])
-			}
-		}
 		lifespan = lifespan || this.lifespan
 		async function findAll(this: SeqModel, options?: FindOptions | undefined): Promise<Model[] | Model | null> {
 			options = options || {}
@@ -98,47 +149,16 @@ export class QueryCacheService {
 		(model as any).count = count.bind(model);
 
 	}
+
 	hookModel(_model: typeof Model) {
-		const model: SeqModel = _model as SeqModel;
-		if (this.hookedModels[model.name]) return
-		model.afterCreate((row, options) => {
-			if (options.transaction)
-				if (options.transaction)
-					options.transaction?.afterCommit(() => CacheLib.ClearCacheByTag(model.name))
-				else
-					CacheLib.ClearCacheByTag(model.name)
-		})
-		model.afterUpdate((row, options) => {
-			if (options.transaction)
-				options.transaction?.afterCommit(() => CacheLib.ClearCacheByTag(model.name))
-			else
-				CacheLib.ClearCacheByTag(model.name)
-		})
-		model.afterDestroy((row, options) => {
-			if (options.transaction)
-				options.transaction?.afterCommit(() => CacheLib.ClearCacheByTag(model.name))
-			else
-				CacheLib.ClearCacheByTag(model.name)
-		})
-		model.afterBulkCreate((rows, options) => {
-			if (options.transaction)
-				options.transaction?.afterCommit(() => CacheLib.ClearCacheByTag(model.name))
-			else
-				CacheLib.ClearCacheByTag(model.name)
-		})
-		model.afterBulkUpdate((options) => {
-			if (options.transaction)
-				options.transaction?.afterCommit(() => CacheLib.ClearCacheByTag(model.name))
-			else
-				CacheLib.ClearCacheByTag(model.name)
-		})
-		model.afterBulkDestroy((options) => {
-			if (options.transaction)
-				options.transaction?.afterCommit(() => CacheLib.ClearCacheByTag(model.name))
-			else
-				CacheLib.ClearCacheByTag(model.name)
-		})
-		this.hookedModels[model.name] = model
+		const model = _model as SeqModel;
+		model.afterCreate((row, options) => { this.invalidateData(model, options.transaction) })
+		model.afterBulkCreate((rows, options) => { this.invalidateData(model, options.transaction) })
+		model.afterSave((row, options) => { this.invalidateData(model, options.transaction) })
+		model.afterUpdate((row, options) => { this.invalidateData(model, options.transaction) })
+		model.afterBulkUpdate((options) => { this.invalidateData(model, options.transaction) })
+		model.afterDestroy((row, options) => { this.OnDelete(model, options.transaction) })
+		model.afterBulkDestroy((options) => { this.OnDelete(model, options.transaction) })
 	}
 }
 
