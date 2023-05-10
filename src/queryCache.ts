@@ -70,7 +70,7 @@ export class QueryCacheService {
 				return await (this as any).cache_findAll(options) as Model[] | Model | null
 			}
 			const cacheKey = this.name + ".findAll:" + JSON.stringify(cacheObject)
-			const cachePaylaod = await cache.GetOrPromise(cacheKey, { timeout: lifespan })
+			const cachePaylaod = await cache.GetCacheOrPromise(cacheKey, { timeout: lifespan })
 			if ("data" in (cachePaylaod as CachePayLoad)) {
 				return cloneDeep((cachePaylaod as CachePayLoad).data) as Model[] | Model | null
 			}
@@ -95,7 +95,7 @@ export class QueryCacheService {
 				return await (this as any).cache_count(options) as number | GroupedCountResultItem[]
 			}
 			const cacheKey = this.name + ".count:" + JSON.stringify(cacheObject)
-			const cachePayLoad = await cache.GetOrPromise(cacheKey, { timeout: lifespan })
+			const cachePayLoad = await cache.GetCacheOrPromise(cacheKey, { timeout: lifespan })
 			if ("data" in (cachePayLoad as CachePayLoad)) {
 				return cloneDeep((cachePayLoad as CachePayLoad).data) as number | GroupedCountResultItem[]
 			}

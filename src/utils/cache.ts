@@ -5,14 +5,20 @@ enum CachePayLoadStatus {
 	DATA = 1,
 	PROMISE = 2,
 }
+/**
+ * CachePayload can contain the data or a promise for that data or doesn't exist
+ */
 type CachedRecord = { data: any, timeoutDate: number, tags: number[] }
 
 export type CachePayLoad = { status: CachePayLoadStatus, data?: any, promise?: Promise<[any, string[]]> }
 export class Cache {
-	private keyIdMap: Record<string, number>
-	private tagIdMap: Record<string, number>
 	private caches: Record<number, CachedRecord> = {}
 	private promises: Record<number, CachePayLoad["promise"]> = {}
+	//cache key to cache id map
+	private keyIdMap: Record<string, number>
+	//tag key to tag id map
+	private tagIdMap: Record<string, number>
+	//reverse id map from tag to caches key
 	private tagKeysGroup: Record<number, number[]> = {}
 	private keyIdCounter = 0;
 	private tagIdCounter = 0;
@@ -105,26 +111,18 @@ export class Cache {
 		const id = this.keyToId(key)
 		this.SetCacheById(id, options)
 	}
-	PromiseCache(key: string, promise: CachePayLoad["promise"], options?: { timeout?: number }) {
-		const id = this.keyToId(key)
-		return this.PromiseCacheById(id, promise, options)
-	}
-	CreatePromise(key: string, options?: { timeout?: number }) {
-		const id = this.keyToId(key)
-		return this.CreatePromiseById(id, options)
-	}
-	async GetOrPromise(key: string, options?: { timeout?: number }): Promise<CachePayLoad | PromiseSub<[any, string[]]>> {
+	async GetCacheOrPromise(key: string, options?: { timeout?: number }): Promise<CachePayLoad | PromiseSub<[any, string[]]>> {
 		const id = this.keyToId(key)
 		const { timeout = 0 } = options || {}
 		var cache = this.GetCacheById(id)
-		if (cache.data) {
+		if (cache.status == CachePayLoadStatus.DATA) {
 			return cache
 		}
-		if (cache.promise) {
+		if (cache.status == CachePayLoadStatus.PROMISE) {
 			const [data, tags] = await cache.promise
 			cache.data = data
 			return cache
 		}
-		return this.CreatePromise(key, { timeout })
+		return this.CreatePromiseById(id, { timeout })
 	}
 }
