@@ -1,71 +1,122 @@
 import { PromiseLib, PromiseSub } from "./promise"
 
-type CachedRecord = { data: any, timeoutDate: Date, tags: string[] }
+enum CachePayLoadStatus {
+	NONE = 0,
+	DATA = 1,
+	PROMISE = 2,
+}
+type CachedRecord = { data: any, timeoutDate: number, tags: number[] }
 
-export type CachePayLoad = { status: "ok" | "promise" | null, data?: any, promise?: Promise<[any, string[]]> }
+export type CachePayLoad = { status: CachePayLoadStatus, data?: any, promise?: Promise<[any, string[]]> }
 export class Cache {
-	private caches: Record<any, CachedRecord> = {}
-	private promises: Record<any, Promise<[any, string[]]>> = {}
-	private tagKeyGroup: Record<string, string[]> = {}
-	Clear(key: string) {
-		delete this.caches[key]
+	private keyIdMap: Record<string, number>
+	private tagIdMap: Record<string, number>
+	private caches: Record<number, CachedRecord> = {}
+	private promises: Record<number, CachePayLoad["promise"]> = {}
+	private tagKeysGroup: Record<number, number[]> = {}
+	private keyIdCounter = 0;
+	private tagIdCounter = 0;
+
+	private keyToId(key: string): number {
+		let id = this.keyIdMap[key]
+		if (id)
+			return id
+		id = ++this.keyIdCounter
+		this.keyIdMap[key] = id
+		this.keyIdCounter = (this.keyIdCounter + 1) % Number.MAX_SAFE_INTEGER;
+		return id
 	}
-	ClearByTag(tag: string) {
-		if (!this.tagKeyGroup[tag]) return
-		for (const key of this.tagKeyGroup[tag]) {
-			if (this.caches[key]) {
-				delete this.caches[key]
-			}
+	private tagToId(tag: string): number {
+		let id = this.tagIdMap[tag]
+		if (id)
+			return id
+		id = ++this.tagIdCounter
+		this.tagIdMap[tag] = id
+		return id
+	}
+
+	private ClearByTagId(tag: number) {
+		if (!this.tagKeysGroup[tag]) return
+		for (const key of this.tagKeysGroup[tag]) {
+			delete this.caches[key]
 		}
-		delete this.tagKeyGroup[tag]
+		this.tagKeysGroup[tag] = []
 
 	}
-	GetCache(key: string): CachePayLoad {
-		const now = new Date()
-		if (this.caches[key] && (now < this.caches[key].timeoutDate)) {
-			return { status: "ok", data: this.caches[key].data }
+
+	private GetCacheById(id: number): CachePayLoad {
+		const now = Date.now()
+		if (this.caches[id] && (now < this.caches[id].timeoutDate)) {
+			return { status: CachePayLoadStatus.DATA, data: this.caches[id].data }
 		}
-		if (key in this.promises) {
-			return { status: "promise", promise: this.promises[key] }
+		if (id in this.promises) {
+			return { status: CachePayLoadStatus.PROMISE, promise: this.promises[id] }
 		}
-		return { status: null }
+		return { status: CachePayLoadStatus.NONE }
 	}
-	SetCache(key: string, options: { data: any, timeout: number, tags: any[] }) {
+	private SetCacheById(id: number, options: { data: any, timeout: number, tags: number[] }) {
 		const { data, timeout, tags } = options
-		const now = new Date()
-		const timeoutDate = new Date(now.getTime() + timeout * 1000)
+		const timeoutDate = Date.now() + timeout * 1000
 		setTimeout(() => {
-			this.Clear(key)
+			delete this.caches[id]
 		}, (timeout + 1) * 1000);
 		for (const tag of tags) {
-			this.tagKeyGroup[tag] = this.tagKeyGroup[tag] || []
-			this.tagKeyGroup[tag].push(key)
+			this.tagKeysGroup[tag] = this.tagKeysGroup[tag] || []
+			this.tagKeysGroup[tag].push(id)
 		}
-		this.caches[key] = { data, timeoutDate, tags }
+		this.caches[id] = { data, timeoutDate, tags }
 	}
-	PromiseCache(key: string, promise: Promise<[any, string[]]>, options?: { timeout?: number }) {
+	private PromiseCacheById(id: number, promise: CachePayLoad["promise"], options?: { timeout?: number }) {
 		const { timeout = 0 } = options || {}
 		promise.then(([data, tags = []]) => {
 			if (timeout > 0) {
-				this.SetCache(key, { data, timeout, tags })
+				let tagsId = tags.map(tag => this.tagToId(tag))
+				this.SetCacheById(id, { data, timeout, tags: tagsId })
 			}
 			return [data, tags]
 		}).then(() => {
-			delete this.promises[key]
+			delete this.promises[id]
 		}).catch(() => {
-			delete this.promises[key]
+			delete this.promises[id]
 		})
-		this.promises[key] = promise
+		this.promises[id] = promise
 	}
-	CreatePromise(key: string, options?: { timeout?: number }) {
+	private CreatePromiseById(id: number, options?: { timeout?: number }) {
 		const { timeout = 0 } = options || {}
 		let sub = PromiseLib.Create<[any, string[]]>()
-		this.PromiseCache(key, sub.promise, { timeout })
+		this.PromiseCacheById(id, sub.promise, { timeout })
 		return sub
 	}
+
+	Clear(key: string) {
+		const id = this.keyToId(key)
+		delete this.caches[id]
+	}
+	ClearByTag(tag: string) {
+		const id = this.tagToId(tag)
+		this.ClearByTagId(id)
+	}
+
+	GetCache(key: string): CachePayLoad {
+		const id = this.keyToId(key)
+		return this.GetCacheById(id)
+	}
+	SetCache(key: string, options: { data: any, timeout: number, tags: any[] }) {
+		const id = this.keyToId(key)
+		this.SetCacheById(id, options)
+	}
+	PromiseCache(key: string, promise: CachePayLoad["promise"], options?: { timeout?: number }) {
+		const id = this.keyToId(key)
+		return this.PromiseCacheById(id, promise, options)
+	}
+	CreatePromise(key: string, options?: { timeout?: number }) {
+		const id = this.keyToId(key)
+		return this.CreatePromiseById(id, options)
+	}
 	async GetOrPromise(key: string, options?: { timeout?: number }): Promise<CachePayLoad | PromiseSub<[any, string[]]>> {
+		const id = this.keyToId(key)
 		const { timeout = 0 } = options || {}
-		var cache = this.GetCache(key)
+		var cache = this.GetCacheById(id)
 		if (cache.data) {
 			return cache
 		}
