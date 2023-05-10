@@ -1,69 +1,69 @@
 import { PromiseLib, PromiseSub } from "./promise"
 
 type CachedRecord = { data: any, timeoutDate: Date, tags: string[] }
-var caches: Record<any, CachedRecord> = {}
-var promises: Record<any, Promise<[any, string[]]>> = {}
-var tagKeyGroup: Record<string, string[]> = {}
 
 export type CachePayLoad = { status: "ok" | "promise" | null, data?: any, promise?: Promise<[any, string[]]> }
-export class CacheLib {
-	static ClearCache(key: string) {
-		delete caches[key]
+export class Cache {
+	private caches: Record<any, CachedRecord> = {}
+	private promises: Record<any, Promise<[any, string[]]>> = {}
+	private tagKeyGroup: Record<string, string[]> = {}
+	Clear(key: string) {
+		delete this.caches[key]
 	}
-	static ClearCacheByTag(tag: string) {
-		if (!tagKeyGroup[tag]) return
-		for (const key of tagKeyGroup[tag]) {
-			if (caches[key]) {
-				delete caches[key]
+	ClearByTag(tag: string) {
+		if (!this.tagKeyGroup[tag]) return
+		for (const key of this.tagKeyGroup[tag]) {
+			if (this.caches[key]) {
+				delete this.caches[key]
 			}
 		}
-		delete tagKeyGroup[tag]
+		delete this.tagKeyGroup[tag]
 
 	}
-	static GetCache(key: string): CachePayLoad {
+	GetCache(key: string): CachePayLoad {
 		const now = new Date()
-		if (caches[key] && (now < caches[key].timeoutDate)) {
-			return { status: "ok", data: caches[key].data }
+		if (this.caches[key] && (now < this.caches[key].timeoutDate)) {
+			return { status: "ok", data: this.caches[key].data }
 		}
-		if (key in promises) {
-			return { status: "promise", promise: promises[key] }
+		if (key in this.promises) {
+			return { status: "promise", promise: this.promises[key] }
 		}
 		return { status: null }
 	}
-	static SetCache(key: string, options: { data: any, timeout: number, tags: any[] }) {
+	SetCache(key: string, options: { data: any, timeout: number, tags: any[] }) {
 		const { data, timeout, tags } = options
 		const now = new Date()
 		const timeoutDate = new Date(now.getTime() + timeout * 1000)
 		setTimeout(() => {
-			this.ClearCache(key)
+			this.Clear(key)
 		}, (timeout + 1) * 1000);
 		for (const tag of tags) {
-			tagKeyGroup[tag] = tagKeyGroup[tag] || []
-			tagKeyGroup[tag].push(key)
+			this.tagKeyGroup[tag] = this.tagKeyGroup[tag] || []
+			this.tagKeyGroup[tag].push(key)
 		}
-		caches[key] = { data, timeoutDate, tags }
+		this.caches[key] = { data, timeoutDate, tags }
 	}
-	static PromiseCache(key: string, promise: Promise<[any, string[]]>, options?: { timeout?: number }) {
+	PromiseCache(key: string, promise: Promise<[any, string[]]>, options?: { timeout?: number }) {
 		const { timeout = 0 } = options || {}
 		promise.then(([data, tags = []]) => {
 			if (timeout > 0) {
-				CacheLib.SetCache(key, { data, timeout, tags })
+				this.SetCache(key, { data, timeout, tags })
 			}
 			return [data, tags]
 		}).then(() => {
-			delete promises[key]
+			delete this.promises[key]
 		}).catch(() => {
-			delete promises[key]
+			delete this.promises[key]
 		})
-		promises[key] = promise
+		this.promises[key] = promise
 	}
-	static CreatePromise(key: string, options?: { timeout?: number }) {
+	CreatePromise(key: string, options?: { timeout?: number }) {
 		const { timeout = 0 } = options || {}
 		let sub = PromiseLib.Create<[any, string[]]>()
 		this.PromiseCache(key, sub.promise, { timeout })
 		return sub
 	}
-	static async GetOrPromise(key: string, options?: { timeout?: number }): Promise<CachePayLoad | PromiseSub<[any, string[]]>> {
+	async GetOrPromise(key: string, options?: { timeout?: number }): Promise<CachePayLoad | PromiseSub<[any, string[]]>> {
 		const { timeout = 0 } = options || {}
 		var cache = this.GetCache(key)
 		if (cache.data) {

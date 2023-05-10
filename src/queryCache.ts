@@ -2,7 +2,7 @@
 import { Model, Op, Association, FindOptions, IncludeOptions, ModelStatic, CountOptions, GroupedCountResultItem, Transactionable, CreateOptions, Sequelize } from "sequelize";
 import { cloneDeep } from "lodash";
 
-import { CacheLib, CachePayLoad } from "./utils/cache";
+import { Cache, CachePayLoad } from "./utils/cache";
 import { PromiseSub } from "./utils/promise";
 import * as ObjectLib from "./utils/object";
 import { ensureNoCycle } from "./utils/string";
@@ -35,6 +35,7 @@ export class QueryCacheService {
 	private deleteCascadeMap: { [key in string]: string[] }
 	private deleteSetNullMap: { [key in string]: string[] }
 	private sequelize: Sequelize
+	private cache: Cache
 	constructor(sequelize: Sequelize, lifespan: number = 60) {
 		this.sequelize = sequelize
 		this.lifespan = lifespan
@@ -43,12 +44,13 @@ export class QueryCacheService {
 			this.handleCascade(sequelize.models[modelName])
 		}
 		ensureNoCycle(this.deleteCascadeMap)
+		this.cache = new Cache()
 	}
 	invalidateData(model: SeqModel, transaction?: CreateOptions<any>["transaction"]) {
 		if (transaction)
-			transaction?.afterCommit(() => CacheLib.ClearCacheByTag(model.name))
+			transaction?.afterCommit(() => this.cache.ClearByTag(model.name))
 		else
-			CacheLib.ClearCacheByTag(model.name)
+			this.cache.ClearByTag(model.name)
 	}
 	OnDelete(model: SeqModel, transaction?: CreateOptions<any>["transaction"]) {
 		this.invalidateData(model, transaction)
@@ -59,6 +61,56 @@ export class QueryCacheService {
 			this.OnDelete(this.sequelize.models[modelName], transaction)
 		}
 
+	}
+	static getSurogateFindAll(cache: Cache, lifespan: number) {
+		async function findAll(this: SeqModel, options?: FindOptions | undefined): Promise<Model[] | Model | null> {
+			options = options || {}
+			let cacheObject: any = ObjectLib.SymbolsToKeys(options, Op as any)
+			if (options.transaction) {
+				return await (this as any).cache_findAll(options) as Model[] | Model | null
+			}
+			const cacheKey = this.name + ".findAll:" + JSON.stringify(cacheObject)
+			const cachePaylaod = await cache.GetOrPromise(cacheKey, { timeout: lifespan })
+			if ("data" in (cachePaylaod as CachePayLoad)) {
+				return cloneDeep((cachePaylaod as CachePayLoad).data) as Model[] | Model | null
+			}
+			const sub = cachePaylaod as PromiseSub<[Model[] | Model | null, string[]]>
+			try {
+				const dependencies = FindOptionsToDependencies(this, options)
+				const result = await (this as any).cache_findAll(options) as Model[] | Model | null
+				sub.resolve([result, dependencies])
+				return result
+			} catch (error) {
+				sub.reject(error)
+				throw error
+			}
+		}
+		return findAll
+	}
+	static getSurogateCount(cache: Cache, lifespan: number) {
+		async function count(this: SeqModel, options?: CountOptions | undefined): Promise<number | GroupedCountResultItem[]> {
+			options = options || {}
+			let cacheObject: any = ObjectLib.SymbolsToKeys(options, Op as any)
+			if (options.transaction) {
+				return await (this as any).cache_count(options) as number | GroupedCountResultItem[]
+			}
+			const cacheKey = this.name + ".count:" + JSON.stringify(cacheObject)
+			const cachePayLoad = await cache.GetOrPromise(cacheKey, { timeout: lifespan })
+			if ("data" in (cachePayLoad as CachePayLoad)) {
+				return cloneDeep((cachePayLoad as CachePayLoad).data) as number | GroupedCountResultItem[]
+			}
+			const sub = cachePayLoad as PromiseSub<[number | GroupedCountResultItem[], string[]]>
+			try {
+				const dependencies = FindOptionsToDependencies(this, options)
+				const result = await (this as any).cache_count(options) as number | GroupedCountResultItem[]
+				sub.resolve([result, dependencies])
+				return result
+			} catch (error) {
+				sub.reject(error)
+				throw error
+			}
+		}
+		return count
 	}
 
 	handleCascade(model: SeqModel) {
@@ -97,55 +149,15 @@ export class QueryCacheService {
 		const model = _model as SeqModel;
 
 		lifespan = lifespan || this.lifespan
-		async function findAll(this: SeqModel, options?: FindOptions | undefined): Promise<Model[] | Model | null> {
-			options = options || {}
-			let cacheObject: any = ObjectLib.SymbolsToKeys(options, Op as any)
-			if (options.transaction) {
-				return await (this as any).cache_findAll(options) as Model[] | Model | null
-			}
-			const cacheKey = this.name + ".findAll:" + JSON.stringify(cacheObject)
-			const cache = await CacheLib.GetOrPromise(cacheKey, { timeout: lifespan })
-			if ("data" in (cache as CachePayLoad)) {
-				return cloneDeep((cache as CachePayLoad).data) as Model[] | Model | null
-			}
-			const sub = cache as PromiseSub<[Model[] | Model | null, string[]]>
-			try {
-				const dependencies = FindOptionsToDependencies(this, options)
-				const result = await (this as any).cache_findAll(options) as Model[] | Model | null
-				sub.resolve([result, dependencies])
-				return result
-			} catch (error) {
-				sub.reject(error)
-				throw error
-			}
-		}
-		async function count(this: SeqModel, options?: CountOptions | undefined): Promise<number | GroupedCountResultItem[]> {
-			options = options || {}
-			let cacheObject: any = ObjectLib.SymbolsToKeys(options, Op as any)
-			if (options.transaction) {
-				return await (this as any).cache_count(options) as number | GroupedCountResultItem[]
-			}
-			const cacheKey = this.name + ".count:" + JSON.stringify(cacheObject)
-			const cache = await CacheLib.GetOrPromise(cacheKey, { timeout: lifespan })
-			if ("data" in (cache as CachePayLoad)) {
-				return cloneDeep((cache as CachePayLoad).data) as number | GroupedCountResultItem[]
-			}
-			const sub = cache as PromiseSub<[number | GroupedCountResultItem[], string[]]>
-			try {
-				const dependencies = FindOptionsToDependencies(this, options)
-				const result = await (this as any).cache_count(options) as number | GroupedCountResultItem[]
-				sub.resolve([result, dependencies])
-				return result
-			} catch (error) {
-				sub.reject(error)
-				throw error
-			}
-		}
+		const findAll = QueryCacheService.getSurogateFindAll(this.cache, lifespan);
+		const count = QueryCacheService.getSurogateCount(this.cache, lifespan);
+
+
 		//Implement Cache
-		(model as any).cache_findAll = (model as any).findAll.bind(model);
+		(model as any).cache_findAll = model.findAll.bind(model);
 		(model as any).findAll = findAll.bind(model);
 
-		(model as any).cache_count = (model as any).count.bind(model);
+		(model as any).cache_count = model.count.bind(model);
 		(model as any).count = count.bind(model);
 
 	}
