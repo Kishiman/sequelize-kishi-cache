@@ -16,7 +16,11 @@
     "boilerplate"
   ],
   "author": "Fares MANAI",
-  "license": "ISC",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Kishiman/sequelize-kishi-cache"
+  },
   "devDependencies": {
     "@types/chai": "^4.2.22",
     "@types/mocha": "^9.0.0",

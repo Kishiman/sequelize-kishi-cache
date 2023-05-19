@@ -161,6 +161,14 @@ export class QueryCacheService {
 		(model as any).count = count.bind(model);
 
 	}
+	clearModel(_model: typeof Model) {
+		this.cache.ClearByTag(_model.name)
+	}
+	clear() {
+		for (const modelName in this.sequelize.models || {}) {
+			this.clearModel(this.sequelize.models[modelName])
+		}
+	}
 
 	hookModel(_model: typeof Model) {
 		const model = _model as SeqModel;
