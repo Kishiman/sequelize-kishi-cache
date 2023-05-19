@@ -15,7 +15,7 @@ export class Cache {
 	private caches: Record<number, CachedRecord> = {}
 	private promises: Record<number, CachePayLoad["promise"]> = {}
 	//cache key to cache id map
-	private keyIdMap: Record<string, number>
+	private keyIdMap: Record<string, number> = {}
 	//reverse id map from tag to caches key
 	private tagKeysGroup: Record<string, number[]> = {}
 	private keyIdCounter = 0;
@@ -100,7 +100,7 @@ export class Cache {
 		if (cache.status == CachePayLoadStatus.DATA) {
 			return cache
 		}
-		if (cache.status == CachePayLoadStatus.PROMISE) {
+		if (cache.status == CachePayLoadStatus.PROMISE && cache.promise) {
 			const [data, tags] = await cache.promise
 			cache.data = data
 			return cache
