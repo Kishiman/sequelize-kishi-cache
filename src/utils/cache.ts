@@ -43,7 +43,7 @@ export class Cache {
 
 	private ClearById(id: number) {
 		if (this.caches[id]?.persistanceType == "fs") {
-			fs.unlink(`${this.cachePath}/${id}`, null)
+			fs.unlink(`${this.cachePath}/${id}`, () => { })
 		}
 		delete this.caches[id]
 	}
