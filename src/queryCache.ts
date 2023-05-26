@@ -44,15 +44,15 @@ export class QueryCacheService {
 			this.handleCascade(sequelize.models[modelName])
 		}
 		ensureNoCycle(this.deleteCascadeMap)
-		this.cache = new Cache()
+		this.cache = new Cache({ cachePath: "sequelize" })
 	}
-	invalidateData(model: SeqModel, transaction?: CreateOptions<any>["transaction"]) {
+	private invalidateData(model: SeqModel, transaction?: CreateOptions<any>["transaction"]) {
 		if (transaction)
 			transaction?.afterCommit(() => this.cache.ClearByTag(model.name))
 		else
 			this.cache.ClearByTag(model.name)
 	}
-	OnDelete(model: SeqModel, transaction?: CreateOptions<any>["transaction"]) {
+	private OnDelete(model: SeqModel, transaction?: CreateOptions<any>["transaction"]) {
 		this.invalidateData(model, transaction)
 		for (const modelName of this.deleteSetNullMap?.[model.name] || []) {
 			this.invalidateData(this.sequelize.models[modelName], transaction)
@@ -62,7 +62,7 @@ export class QueryCacheService {
 		}
 
 	}
-	static getSurogateFindAll(cache: Cache, lifespan: number) {
+	private static getSurogateFindAll(cache: Cache, lifespan: number, persistanceType?: "mem" | "fs") {
 		async function findAll(this: SeqModel, options?: FindOptions | undefined): Promise<Model[] | Model | null> {
 			options = options || {}
 			let cacheObject: any = ObjectLib.SymbolsToKeys(options, Op as any)
@@ -70,7 +70,7 @@ export class QueryCacheService {
 				return await (this as any).cache_findAll(options) as Model[] | Model | null
 			}
 			const cacheKey = this.name + ".findAll:" + JSON.stringify(cacheObject)
-			const cachePaylaod = await cache.GetCacheOrPromise(cacheKey, { timeout: lifespan })
+			const cachePaylaod = await cache.GetCacheOrPromise(cacheKey, { timeout: lifespan, persistanceType })
 			if ("data" in (cachePaylaod as CachePayLoad)) {
 				return cloneDeep((cachePaylaod as CachePayLoad).data) as Model[] | Model | null
 			}
@@ -87,7 +87,7 @@ export class QueryCacheService {
 		}
 		return findAll
 	}
-	static getSurogateCount(cache: Cache, lifespan: number) {
+	private static getSurogateCount(cache: Cache, lifespan: number) {
 		async function count(this: SeqModel, options?: CountOptions | undefined): Promise<number | GroupedCountResultItem[]> {
 			options = options || {}
 			let cacheObject: any = ObjectLib.SymbolsToKeys(options, Op as any)
@@ -113,7 +113,7 @@ export class QueryCacheService {
 		return count
 	}
 
-	handleCascade(model: SeqModel) {
+	private handleCascade(model: SeqModel) {
 		const OnDeleteForeignKeys = Object.keys(model.rawAttributes).filter(name =>
 			model.rawAttributes[name].references && ["cascade", "no action", "set null"].includes(model.rawAttributes[name]?.onDelete?.toLowerCase() || "")
 		)
@@ -144,12 +144,23 @@ export class QueryCacheService {
 		}
 	}
 
+	private hookModel(_model: typeof Model) {
+		const model = _model as SeqModel;
+		model.afterCreate((row, options) => { this.invalidateData(model, options.transaction) })
+		model.afterBulkCreate((rows, options) => { this.invalidateData(model, options.transaction) })
+		model.afterSave((row, options) => { this.invalidateData(model, options.transaction) })
+		model.afterUpdate((row, options) => { this.invalidateData(model, options.transaction) })
+		model.afterBulkUpdate((options) => { this.invalidateData(model, options.transaction) })
+		model.afterDestroy((row, options) => { this.OnDelete(model, options.transaction) })
+		model.afterBulkDestroy((options) => { this.OnDelete(model, options.transaction) })
+	}
 
-	cacheModel(_model: typeof Model, lifespan?: number) {
+
+	cacheModel(_model: typeof Model, lifespan?: number, persistanceType?: "mem" | "fs") {
 		const model = _model as SeqModel;
 
 		lifespan = lifespan || this.lifespan
-		const findAll = QueryCacheService.getSurogateFindAll(this.cache, lifespan);
+		const findAll = QueryCacheService.getSurogateFindAll(this.cache, lifespan, persistanceType);
 		const count = QueryCacheService.getSurogateCount(this.cache, lifespan);
 
 
@@ -170,15 +181,5 @@ export class QueryCacheService {
 		}
 	}
 
-	hookModel(_model: typeof Model) {
-		const model = _model as SeqModel;
-		model.afterCreate((row, options) => { this.invalidateData(model, options.transaction) })
-		model.afterBulkCreate((rows, options) => { this.invalidateData(model, options.transaction) })
-		model.afterSave((row, options) => { this.invalidateData(model, options.transaction) })
-		model.afterUpdate((row, options) => { this.invalidateData(model, options.transaction) })
-		model.afterBulkUpdate((options) => { this.invalidateData(model, options.transaction) })
-		model.afterDestroy((row, options) => { this.OnDelete(model, options.transaction) })
-		model.afterBulkDestroy((options) => { this.OnDelete(model, options.transaction) })
-	}
 }
 
