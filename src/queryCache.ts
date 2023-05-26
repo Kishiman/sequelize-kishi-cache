@@ -32,8 +32,8 @@ function FindOptionsToDependencies(Model: SeqModel, options: FindOptions) {
 
 export class QueryCacheService {
 	private lifespan: number = 60
-	private deleteCascadeMap: { [key in string]: string[] }
-	private deleteSetNullMap: { [key in string]: string[] }
+	private deleteCascadeMap: { [key in string]: string[] } = {}
+	private deleteSetNullMap: { [key in string]: string[] } = {}
 	private sequelize: Sequelize
 	private cache: Cache
 	constructor(sequelize: Sequelize, lifespan: number = 60) {
