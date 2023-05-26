@@ -27,6 +27,21 @@ const sequelize = new Sequelize('database', 'username', 'password', {
 const queryCacheService = new QueryCacheService(sequelize, 60);
 ```
 
+### Persistence Support
+
+Starting from version 0.0.6, Sequelize Query Cache introduces support for persistence using both in-memory (mem) and file system (fs) storage options.
+
+To enable persistence, use the `cacheModel` method with an optional `persistanceType` parameter. By default, the persistence type is set to "mem" if not specified.
+
+```javascript
+cacheModel(_model: typeof Model, lifespan?: number, persistanceType?: "mem" | "fs")
+```
+* File System (fs) Persistence
+the cached data will be persisted to the file system. The data will be stored in separate files on disk, slower performance, lower memory usage
+
+* Memory (mem) Persistence
+the cache data will be stored in memory: faster performance, higher memory usage
+
 ### Caching Model Queries
 
 To enable caching for a Sequelize model, you can use the `cacheModel` method provided by the `QueryCacheService`. This method adds caching functionality to the `findAll` and `count` methods of the model.
