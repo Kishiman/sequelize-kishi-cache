@@ -1,5 +1,5 @@
 
-import { Model, Op, Association, FindOptions, IncludeOptions, ModelStatic, CountOptions, GroupedCountResultItem, Transactionable, CreateOptions, Sequelize } from "sequelize";
+import { Model, Op, Association, FindOptions, IncludeOptions, ModelStatic, CountOptions, GroupedCountResultItem, Transactionable, CreateOptions, Sequelize, Optional } from "sequelize";
 import { cloneDeep } from "lodash";
 
 import { Cache, CachePayLoad } from "./utils/cache";
@@ -88,7 +88,19 @@ export class QueryCacheService {
 			const cacheKey = this.name + ".findAll:" + JSON.stringify(cacheObject)
 			const cachePaylaod = await cache.GetCacheOrPromise(cacheKey, { timeout: lifespan, persistanceType })
 			if ("data" in (cachePaylaod as CachePayLoad)) {
-				return cloneDeep((cachePaylaod as CachePayLoad).data) as Model[] | Model | null
+				if (persistanceType == 'fs') {
+					const data = (cachePaylaod as CachePayLoad).data as Optional<any, string> | Optional<any, string>[] | null
+
+					if (Array.isArray(data)) {
+						return data.map(item => this.build(item));  // 'this.build' creates an instance from the raw data
+					} else if (data) {
+						return this.build(data);  // For a single instance
+					} else {
+						return null
+					}
+				} else if (persistanceType == 'mem') {
+					return cloneDeep((cachePaylaod as CachePayLoad).data) as Model[] | Model | null
+				}
 			}
 			const sub = cachePaylaod as PromiseSub<[Model[] | Model | null, string[]]>
 			try {
