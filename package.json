@@ -1,12 +1,12 @@
 {
   "name": "sequelize-kishi-cache",
-  "version": "0.0.7-beta",
+  "version": "0.0.8-beta",
   "description": "npm package for caching sequelize queries with data invalidation",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "deploy": "npm publish"
+    "deploy": "npm run build & npm publish"
   },
   "keywords": [
     "typescript",
