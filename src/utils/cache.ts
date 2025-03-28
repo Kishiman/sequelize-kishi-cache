@@ -1,4 +1,4 @@
-import { clearOrCreateFolder } from "./fs";
+import { clearOrCreateFolder, sanitizePath } from "./fs";
 import { PromiseLib, PromiseSub } from "./promise"
 import fs from "fs"
 
@@ -33,7 +33,7 @@ export class Cache {
 	private cachePath = ""
 	private static paths = [];
 	constructor(options: CacheConstructorOptions) {
-		const cachePath = options.cachePath
+		const cachePath = sanitizePath(options.cachePath)
 		if (Cache.paths.includes(cachePath))
 			throw `Cache path must be unique:${cachePath}`
 		Cache.paths.push(cachePath)

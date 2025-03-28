@@ -36,6 +36,10 @@ export class QueryCacheService {
 	private deleteSetNullMap: { [key in string]: string[] } = {}
 	private sequelize: Sequelize
 	private cache: Cache
+	static cachePerSequelize: Record<string, {
+		sequelize: Sequelize;
+		cache: Cache;
+	}> = {};
 	constructor(sequelize: Sequelize, lifespan: number = 60) {
 		this.sequelize = sequelize
 		this.lifespan = lifespan
@@ -44,7 +48,19 @@ export class QueryCacheService {
 			this.handleCascade(sequelize.models[modelName])
 		}
 		ensureNoCycle(this.deleteCascadeMap)
-		this.cache = new Cache({ cachePath: "sequelize" })
+		// Extract unique ID based on connection details
+		const { host, port, database } = sequelize.config as any;
+		const id = `${host}:${port}/${database}`;
+
+		if (id in QueryCacheService.cachePerSequelize) {
+			this.cache = QueryCacheService.cachePerSequelize[id].cache
+		} else {
+			this.cache = new Cache({ cachePath: `QueryCacheService/${id}` })
+			QueryCacheService.cachePerSequelize[id] = {
+				sequelize,
+				cache: this.cache,
+			}
+		}
 	}
 	private invalidateData(model: SeqModel, transaction?: CreateOptions<any>["transaction"]) {
 		if (transaction)

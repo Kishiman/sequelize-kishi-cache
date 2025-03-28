@@ -14,3 +14,6 @@ export function clearOrCreateFolder(folderPath: string) {
         fs.mkdirSync(folderPath, { recursive: true });
     }
 }
+export function sanitizePath(path: string): string {
+    return path.replace(/[<>:"\/\\|?*\x00-\x1F]/g, "_"); // Replace unsafe characters with "_"
+}
