@@ -32,8 +32,8 @@ export function FindOptionsToDependencies(Model: SeqModel, options: FindOptions)
   }
   return [...new Set(dependencies)]
 }
-export function sanitizeDataValues<T extends Record<string, any>>(data: T): T {
-  const attributes = this.rawAttributes; // Get model's attribute definitions
+export function sanitizeDataValues<T extends Record<string, any>>(Model: SeqModel, data: T): T {
+  const attributes = Model.rawAttributes; // Get model's attribute definitions
 
   for (const key of Object.keys(data)) {
     if (

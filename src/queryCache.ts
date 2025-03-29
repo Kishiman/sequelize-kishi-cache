@@ -63,10 +63,10 @@ export class QueryCacheService {
 			if (!record)
 				return (this as any).cache_build(record, options)
 			if (record instanceof Model) {
-				record.dataValues = sanitizeDataValues(record.dataValues)
+				record.dataValues = sanitizeDataValues(this, record.dataValues)
 				return (this as any).cache_build(record, options)
 			}
-			return (this as any).cache_build(sanitizeDataValues(record), options)
+			return (this as any).cache_build(sanitizeDataValues(this, record), options)
 		}
 		return build
 	}
