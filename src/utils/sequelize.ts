@@ -5,7 +5,7 @@ export type SeqModel = typeof Model & ModelStatic<Model>
 export function afterRootCommit(cb: () => void, options: { transaction?: Transaction | null }) {
   if (options.transaction) {
     options.transaction.afterCommit(() => {
-      this.afterRootCommit(cb, { transaction: (options.transaction as any).parent as Transaction })
+      afterRootCommit(cb, { transaction: (options.transaction as any).parent as Transaction })
     })
   } else {
     cb()
