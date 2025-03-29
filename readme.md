@@ -36,11 +36,26 @@ To enable persistence, use the `cacheModel` method with an optional `persistance
 ```javascript
 cacheModel(_model: typeof Model, lifespan?: number, persistanceType?: "mem" | "fs")
 ```
-* File System (fs) Persistence
-the cached data will be persisted to the file system. The data will be stored in separate files on disk, slower performance, lower memory usage
 
-* Memory (mem) Persistence
-the cache data will be stored in memory: faster performance, higher memory usage
+* **File System (fs) Persistence**
+  - The cached data will be persisted to the file system.
+  - The data will be stored in separate files on disk.
+  - Slower performance, lower memory usage.
+
+* **Memory (mem) Persistence**
+  - The cache data will be stored in memory.
+  - Faster performance, higher memory usage.
+
+### Debugging Support
+
+Starting from version 0.0.7, a `debug` option is available to compare cached results with database results and throw an error if they do not match in JSON format. This helps detect inconsistencies and ensure cache integrity.
+
+```javascript
+const queryCacheService = new QueryCacheService(sequelize, timeout, true)
+ // Enable debug mode
+```
+
+If enabled, the system will fetch the data from the database and compare it with the cache, throwing an error if there is a mismatch.
 
 ### Caching Model Queries
 
@@ -82,8 +97,8 @@ queryCacheService.clear();
 
 // Clear the cache for a specific model
 queryCacheService.clearModel(MyModel);
-
 ```
+
 ## Cache Invalidation
 
 Sequelize kishi Cache listens to Sequelize model hooks to automatically invalidate cached queries when relevant changes occur in the underlying data. This ensures that the cached results stay up-to-date and reflect the latest changes made to the models.
@@ -124,15 +139,12 @@ MyModel.destroy({
   // Sequelize query options
 });
 ```
-
 Sequelize kishi Cache manages the cache invalidation process behind the scenes, so you don't have to worry about manually clearing the cache when changes occur in your models.
-
 ## Support for onDelete Cascade and Set Null Associations
 
 Sequelize kishi Cache also provides support for associations with `onDelete` actions such as "cascade" and "set null" that may not be detected by the Sequelize model hooks. These actions define the behavior when a record in the associated table is deleted.
 
-
-Sequelize kishi Cache utilizes mappings to properly invalidate cached queries when onDelete cascade or set null actions occur, ensuring that the cache remains synchronized with the changes made to the associated data.
+Sequelize kishi Cache utilizes mappings to properly invalidate cached queries when `onDelete cascade` or `set null` actions occur, ensuring that the cache remains synchronized with the changes made to the associated data.
 
 If you encounter any issues or inconsistencies with cascade or set null associations, Sequelize kishi Cache outputs an error message with relevant details to assist with troubleshooting.
 
@@ -140,20 +152,11 @@ If you encounter any issues or inconsistencies with cascade or set null associat
 
 Sequelize kishi Cache provides an easy-to-use caching mechanism for Sequelize queries, enhancing the performance of your application. By leveraging the cache and automatic cache invalidation through Sequelize model hooks, you can improve response times and reduce the load on your database.
 
-Sequelize kishi Cache also supports onDelete cascade and set null associations that may not be detected by Sequelize model hooks, ensuring that the cache remains synchronized with the changes made to the associated data. When a record is created, updated, or deleted using the Sequelize model's methods, the cache service automatically invalidates the corresponding cached queries, guaranteeing up-to-date results.
-
-If you encounter any issues or inconsistencies with cascade or set null associations, Sequelize kishi Cache outputs an error message with relevant details to assist with troubleshooting.
-
-Sequelize kishi Cache simplifies caching and cache invalidation for Sequelize queries, improving the overall performance and reliability of your application.
-
-If you have any questions, need support, or want to contribute to Sequelize kishi Cache, feel free to reach out to the maintainers or open an issue on the GitHub repository.
-
+If you encounter any issues or need support, feel free to reach out to the maintainers or open an issue on the GitHub repository.
 
 ## Contributing
 
 Contributions to Sequelize kishi Cache are welcome! If you find a bug or want to suggest a new feature, please create an issue on the [GitHub repository](https://github.com/Kishiman/sequelize-kishi-cache). You can also submit pull requests with improvements and fixes.
-
-Before contributing, please make sure to read the [contribution guidelines](https://github.com/Kishiman/sequelize-kishi-cache/blob/master/CONTRIBUTING.md).
 
 ## License
 
@@ -165,4 +168,3 @@ Sequelize Query kishi is built on top of the [Sequelize](https://sequelize.org/)
 
 Special thanks to the contributors who have helped make this project better.
 
-If you have any questions or need support, feel free to reach out to the maintainers or open an issue on the GitHub repository.
