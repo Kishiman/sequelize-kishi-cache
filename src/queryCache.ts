@@ -1,34 +1,13 @@
 
-import { Model, Op, Association, FindOptions, IncludeOptions, ModelStatic, CountOptions, GroupedCountResultItem, Transactionable, CreateOptions, Sequelize } from "sequelize";
+import { Model, Op, FindOptions, CountOptions, GroupedCountResultItem, CreateOptions, Sequelize, Optional } from "sequelize";
 import { cloneDeep } from "lodash";
 
 import { Cache, CachePayLoad } from "./utils/cache";
 import { PromiseSub } from "./utils/promise";
 import * as ObjectLib from "./utils/object";
 import { ensureNoCycle } from "./utils/string";
+import { afterRootCommit, FindOptionsToDependencies, SeqModel } from "./utils/sequelize";
 
-type SeqModel = typeof Model & ModelStatic<Model>
-
-function FindOptionsToDependencies(Model: SeqModel, options: FindOptions) {
-	const dependencies = [Model.name]
-	let include = options.include as IncludeOptions[]
-	include = (Array.isArray(include) ? include : (include ? [include] : [])) as IncludeOptions[]
-	for (const item of include) {
-		let model: SeqModel
-		model = (item.model || (item.association as Association)?.target) as SeqModel
-		try {
-			dependencies.push(...FindOptionsToDependencies(model, item))
-		} catch (error) {
-			throw error
-		}
-		const { as } = item
-		const association = as ? Model.associations[as] : null
-
-		if ((association as any)?.through)
-			dependencies.push((association as any)?.through.name)
-	}
-	return [...new Set(dependencies)]
-}
 
 export class QueryCacheService {
 	private lifespan: number = 60
@@ -63,10 +42,9 @@ export class QueryCacheService {
 		}
 	}
 	private invalidateData(model: SeqModel, transaction?: CreateOptions<any>["transaction"]) {
-		if (transaction)
-			transaction?.afterCommit(() => this.cache.ClearByTag(model.name))
-		else
-			this.cache.ClearByTag(model.name)
+		afterRootCommit(() => this.cache.ClearByTag(model.name), {
+			transaction
+		})
 	}
 	private OnDelete(model: SeqModel, transaction?: CreateOptions<any>["transaction"]) {
 		this.invalidateData(model, transaction)
@@ -88,13 +66,40 @@ export class QueryCacheService {
 			const cacheKey = this.name + ".findAll:" + JSON.stringify(cacheObject)
 			const cachePaylaod = await cache.GetCacheOrPromise(cacheKey, { timeout: lifespan, persistanceType })
 			if ("data" in (cachePaylaod as CachePayLoad)) {
-				return cloneDeep((cachePaylaod as CachePayLoad).data) as Model[] | Model | null
+				if (persistanceType == 'fs' && !options.raw) {
+					const data = (cachePaylaod as CachePayLoad).data as Optional<any, string> | Optional<any, string>[] | null
+					if (Array.isArray(data)) {
+						return data.map(item => this.build(item, {
+							raw: true,
+							include: options.include  // Ensure associations are included
+						})); // For a multiple instances
+					} else if (data) {
+						return this.build(data, {
+							raw: true,
+							include: options.include  // Ensure associations are included
+						});  // For a single instance
+					} else {
+						return null
+					}
+				} else {
+					return cloneDeep((cachePaylaod as CachePayLoad).data) as Model[] | Model | null
+				}
 			}
 			const sub = cachePaylaod as PromiseSub<[Model[] | Model | null, string[]]>
 			try {
 				const dependencies = FindOptionsToDependencies(this, options)
 				const result = await (this as any).cache_findAll(options) as Model[] | Model | null
-				sub.resolve([result, dependencies])
+				if (persistanceType == 'fs' && !options.raw) {
+					if (Array.isArray(result)) {
+						sub.resolve([result.map(item => item.get({ plain: true })), dependencies])
+					} else if (result) {
+						sub.resolve([result.get({ plain: true }), dependencies])
+					} else {
+						sub.resolve([null, dependencies])
+					}
+				} else {
+					sub.resolve([result, dependencies])
+				}
 				return result
 			} catch (error) {
 				sub.reject(error)
