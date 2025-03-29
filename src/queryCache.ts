@@ -1,12 +1,12 @@
 
-import { Model, Op, FindOptions, CountOptions, GroupedCountResultItem, CreateOptions, Sequelize, Optional } from "sequelize";
+import { Model, Op, FindOptions, CountOptions, GroupedCountResultItem, CreateOptions, Sequelize, Optional, CreationAttributes, BuildOptions } from "sequelize";
 import { cloneDeep } from "lodash";
 
 import { Cache, CachePayLoad } from "./utils/cache";
 import { PromiseSub } from "./utils/promise";
 import * as ObjectLib from "./utils/object";
 import { ensureNoCycle } from "./utils/string";
-import { afterRootCommit, FindOptionsToDependencies, SeqModel } from "./utils/sequelize";
+import { afterRootCommit, FindOptionsToDependencies, sanitizeDataValues, SeqModel } from "./utils/sequelize";
 
 
 export class QueryCacheService {
@@ -26,6 +26,7 @@ export class QueryCacheService {
 		for (const modelName in sequelize.models || {}) {
 			this.hookModel(sequelize.models[modelName])
 			this.handleCascade(sequelize.models[modelName])
+
 		}
 		ensureNoCycle(this.deleteCascadeMap)
 		// Extract unique ID based on connection details
@@ -57,6 +58,19 @@ export class QueryCacheService {
 		}
 
 	}
+	private static getSurogateBuild() {
+		function build(this: SeqModel, record?: CreationAttributes<Model>, options?: BuildOptions): Model {
+			if (!record)
+				return (this as any).cache_build(record, options)
+			if (record instanceof Model) {
+				record.dataValues = sanitizeDataValues(record.dataValues)
+				return (this as any).cache_build(record, options)
+			}
+			return (this as any).cache_build(sanitizeDataValues(record), options)
+		}
+		return build
+	}
+
 	private static getSurogateFindAll(cache: Cache, lifespan: number, persistanceType?: "mem" | "fs", debug: Boolean = false) {
 		async function findAll(this: SeqModel, options?: FindOptions | undefined): Promise<Model[] | Model | null> {
 			options = options || {}
@@ -72,10 +86,10 @@ export class QueryCacheService {
 				if (persistanceType == 'fs' && !options.raw) {
 					const data = (cachePaylaod as CachePayLoad).data as Optional<any, string> | Optional<any, string>[] | null
 					if (Array.isArray(data)) {
-						cacheResult = data.map(item => this.build(item, {
+						cacheResult = this.bulkBuild(data, {
 							raw: true,
 							include: options.include  // Ensure associations are included
-						})); // For a multiple instances
+						}); // For a multiple instances
 					} else if (data) {
 						cacheResult = this.build(data, {
 							raw: true,
@@ -190,6 +204,12 @@ export class QueryCacheService {
 		model.afterBulkUpdate((options) => { this.invalidateData(model, options.transaction) })
 		model.afterDestroy((row, options) => { this.OnDelete(model, options.transaction) })
 		model.afterBulkDestroy((options) => { this.OnDelete(model, options.transaction) })
+
+		const build = QueryCacheService.getSurogateBuild();
+		//override Build
+		(model as any).cache_build = model.build.bind(model);
+		(model as any).build = build.bind(model);
+
 	}
 
 

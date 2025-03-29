@@ -1,4 +1,4 @@
-import { Association, FindOptions, IncludeOptions, Model, ModelStatic, Transaction } from "sequelize"
+import { Association, DataTypes, FindOptions, IncludeOptions, Model, ModelStatic, Transaction } from "sequelize"
 
 export type SeqModel = typeof Model & ModelStatic<Model>
 
@@ -31,4 +31,20 @@ export function FindOptionsToDependencies(Model: SeqModel, options: FindOptions)
       dependencies.push((association as any)?.through.name)
   }
   return [...new Set(dependencies)]
+}
+export function sanitizeDataValues<T extends Record<string, any>>(data: T): T {
+  const attributes = this.rawAttributes; // Get model's attribute definitions
+
+  for (const key of Object.keys(data)) {
+    if (
+      attributes[key] &&
+      (attributes[key].type instanceof DataTypes.DATE)
+    ) {
+      if (typeof data[key] === "string") {
+        (data as any)[key] = new Date(data[key]); // Convert string to Date
+      }
+    }
+  }
+
+  return data;
 }
