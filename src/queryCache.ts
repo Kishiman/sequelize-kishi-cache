@@ -15,11 +15,12 @@ export class QueryCacheService {
 	private deleteSetNullMap: { [key in string]: string[] } = {}
 	private sequelize: Sequelize
 	private cache: Cache
+	private debug: Boolean = false;
 	static cachePerSequelize: Record<string, {
 		sequelize: Sequelize;
 		cache: Cache;
 	}> = {};
-	constructor(sequelize: Sequelize, lifespan: number = 60) {
+	constructor(sequelize: Sequelize, lifespan: number = 60, debug = false) {
 		this.sequelize = sequelize
 		this.lifespan = lifespan
 		for (const modelName in sequelize.models || {}) {
@@ -56,7 +57,7 @@ export class QueryCacheService {
 		}
 
 	}
-	private static getSurogateFindAll(cache: Cache, lifespan: number, persistanceType?: "mem" | "fs") {
+	private static getSurogateFindAll(cache: Cache, lifespan: number, persistanceType?: "mem" | "fs", debug: Boolean = false) {
 		async function findAll(this: SeqModel, options?: FindOptions | undefined): Promise<Model[] | Model | null> {
 			options = options || {}
 			let cacheObject: any = ObjectLib.SymbolsToKeys(options, Op as any)
@@ -65,30 +66,45 @@ export class QueryCacheService {
 			}
 			const cacheKey = this.name + ".findAll:" + JSON.stringify(cacheObject)
 			const cachePaylaod = await cache.GetCacheOrPromise(cacheKey, { timeout: lifespan, persistanceType })
+			let dbResult: Model[] | Model | null
+			let cacheResult: Model[] | Model | null
 			if ("data" in (cachePaylaod as CachePayLoad)) {
 				if (persistanceType == 'fs' && !options.raw) {
 					const data = (cachePaylaod as CachePayLoad).data as Optional<any, string> | Optional<any, string>[] | null
 					if (Array.isArray(data)) {
-						return data.map(item => this.build(item, {
+						cacheResult = data.map(item => this.build(item, {
 							raw: true,
 							include: options.include  // Ensure associations are included
 						})); // For a multiple instances
 					} else if (data) {
-						return this.build(data, {
+						cacheResult = this.build(data, {
 							raw: true,
 							include: options.include  // Ensure associations are included
 						});  // For a single instance
 					} else {
-						return null
+						cacheResult = null
 					}
 				} else {
-					return cloneDeep((cachePaylaod as CachePayLoad).data) as Model[] | Model | null
+					cacheResult = cloneDeep((cachePaylaod as CachePayLoad).data) as Model[] | Model | null
 				}
+				if (debug) {
+					dbResult = await (this as any).cache_findAll(options) as Model[] | Model | null
+
+					// Convert both results to JSON for comparison
+					const cacheJson = JSON.stringify(cacheResult);
+					const dbJson = JSON.stringify(dbResult);
+
+					if (cacheJson !== dbJson) {
+						// Throw an error if they don't match
+						throw new Error(`Cache result and DB result do not match. Cache: ${cacheJson}, DB: ${dbJson}`);
+					}
+				}
+				return cacheResult
 			}
 			const sub = cachePaylaod as PromiseSub<[Model[] | Model | null, string[]]>
 			try {
-				const dependencies = FindOptionsToDependencies(this, options)
 				const result = await (this as any).cache_findAll(options) as Model[] | Model | null
+				const dependencies = FindOptionsToDependencies(this, options)
 				if (persistanceType == 'fs' && !options.raw) {
 					if (Array.isArray(result)) {
 						sub.resolve([result.map(item => item.get({ plain: true })), dependencies])
@@ -181,7 +197,7 @@ export class QueryCacheService {
 		const model = _model as SeqModel;
 
 		lifespan = lifespan || this.lifespan
-		const findAll = QueryCacheService.getSurogateFindAll(this.cache, lifespan, persistanceType);
+		const findAll = QueryCacheService.getSurogateFindAll(this.cache, lifespan, persistanceType, this.debug);
 		const count = QueryCacheService.getSurogateCount(this.cache, lifespan);
 
 
