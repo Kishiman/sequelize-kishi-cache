@@ -6,7 +6,7 @@ import { Cache, CachePayLoad } from "./utils/cache";
 import { PromiseSub } from "./utils/promise";
 import * as ObjectLib from "./utils/object";
 import { ensureNoCycle } from "./utils/string";
-import { afterRootCommit, FindOptionsToDependencies, sanitizeDataValues, SeqModel } from "./utils/sequelize";
+import { afterRootCommit, FindOptionsToDependencies, getRawDataValues, sanitizeDataValues, SeqModel } from "./utils/sequelize";
 
 
 export class QueryCacheService {
@@ -71,6 +71,19 @@ export class QueryCacheService {
 		return build
 	}
 
+	private static getSurogateGet() {
+		function get(this: SeqModel, record?: CreationAttributes<Model>, options?: BuildOptions): Model {
+			if (!record)
+				return (this as any).cache_get(record, options)
+			if (record instanceof Model) {
+				record.dataValues = sanitizeDataValues(this, record.dataValues)
+				return (this as any).cache_get(record, options)
+			}
+			return (this as any).cache_get(sanitizeDataValues(this, record), options)
+		}
+		return get
+	}
+
 	private static getSurogateFindAll(cache: Cache, lifespan: number, persistanceType?: "mem" | "fs", debug: Boolean = false) {
 		async function findAll(this: SeqModel, options?: FindOptions | undefined): Promise<Model[] | Model | null> {
 			options = options || {}
@@ -115,15 +128,15 @@ export class QueryCacheService {
 				}
 				return cacheResult
 			}
-			const sub = cachePaylaod as PromiseSub<[Model[] | Model | null, string[]]>
+			const sub = cachePaylaod as PromiseSub<[Optional<any, string> | Optional<any, string>[] | Model[] | Model | null, string[]]>
 			try {
 				const result = await (this as any).cache_findAll(options) as Model[] | Model | null
 				const dependencies = FindOptionsToDependencies(this, options)
 				if (persistanceType == 'fs' && !options.raw) {
 					if (Array.isArray(result)) {
-						sub.resolve([result.map(item => item.get({ plain: true })), dependencies])
+						sub.resolve([result.map(getRawDataValues), dependencies])
 					} else if (result) {
-						sub.resolve([result.get({ plain: true }), dependencies])
+						sub.resolve([getRawDataValues(result), dependencies])
 					} else {
 						sub.resolve([null, dependencies])
 					}

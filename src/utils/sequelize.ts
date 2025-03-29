@@ -48,3 +48,25 @@ export function sanitizeDataValues<T extends Record<string, any>>(Model: SeqMode
 
   return data;
 }
+export function getRawDataValues<T extends Model>(instance: T): Record<string, any> {
+  if (!instance) return null;
+
+  // Extract raw values without custom getters
+  const rawValues = { ...instance.dataValues };
+
+  // Process included associations
+  if ((instance as any)._options && (instance as any)._options.include) {
+    for (const include of (instance as any)._options.include) {
+      const associationName = include.as || include.model.name;
+      const associatedData = instance.dataValues[associationName];
+
+      if (Array.isArray(associatedData)) {
+        rawValues[associationName] = associatedData.map(getRawDataValues);
+      } else if (associatedData instanceof Model) {
+        rawValues[associationName] = getRawDataValues(associatedData);
+      }
+    }
+  }
+
+  return rawValues;
+}
