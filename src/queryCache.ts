@@ -1,6 +1,7 @@
 
 import { Model, Op, FindOptions, CountOptions, GroupedCountResultItem, CreateOptions, Sequelize, Optional, CreationAttributes, BuildOptions } from "sequelize";
 import { cloneDeep } from "lodash";
+import { Redis } from "ioredis";
 
 import { Cache, CachePayLoad } from "./utils/cache";
 import { PromiseSub } from "./utils/promise";
@@ -8,9 +9,16 @@ import * as ObjectLib from "./utils/object";
 import { ensureNoCycle } from "./utils/string";
 import { afterRootCommit, FindOptionsToDependencies, getRawDataValues, sanitizeDataValues, SeqModel } from "./utils/sequelize";
 
-
+interface QueryCacheServiceConstructorOptions {
+	sequelize: Sequelize;
+	redis?: Redis;
+	lifespan?: number;
+	debug?: boolean;
+}
 export class QueryCacheService {
-	private lifespan: number = 60
+	private lifespan: number = 60;
+	private redis?: Redis;
+
 	private deleteCascadeMap: { [key in string]: string[] } = {}
 	private deleteSetNullMap: { [key in string]: string[] } = {}
 	private sequelize: Sequelize
@@ -20,9 +28,11 @@ export class QueryCacheService {
 		sequelize: Sequelize;
 		cache: Cache;
 	}> = {};
-	constructor(sequelize: Sequelize, lifespan: number = 60, debug = false) {
+	constructor(options: QueryCacheServiceConstructorOptions) {
+		const { sequelize, redis, lifespan = 60, debug = false } = options
 		this.sequelize = sequelize
 		this.lifespan = lifespan
+		this.redis = redis
 		for (const modelName in sequelize.models || {}) {
 			this.hookModel(sequelize.models[modelName])
 			this.handleCascade(sequelize.models[modelName])
@@ -36,7 +46,7 @@ export class QueryCacheService {
 		if (id in QueryCacheService.cachePerSequelize) {
 			this.cache = QueryCacheService.cachePerSequelize[id].cache
 		} else {
-			this.cache = new Cache({ cachePath: `QueryCacheService/${id}` })
+			this.cache = new Cache({ cachePath: `QueryCacheService/${id}`, redis })
 			QueryCacheService.cachePerSequelize[id] = {
 				sequelize,
 				cache: this.cache,
@@ -96,7 +106,7 @@ export class QueryCacheService {
 			let dbResult: Model[] | Model | null
 			let cacheResult: Model[] | Model | null
 			if ("data" in (cachePaylaod as CachePayLoad)) {
-				if (persistanceType == 'fs' && !options.raw) {
+				if (persistanceType != 'mem' && !options.raw) {
 					const data = (cachePaylaod as CachePayLoad).data as Optional<any, string> | Optional<any, string>[] | null
 					if (Array.isArray(data)) {
 						cacheResult = this.bulkBuild(data, {
@@ -132,7 +142,7 @@ export class QueryCacheService {
 			try {
 				const result = await (this as any).cache_findAll(options) as Model[] | Model | null
 				const dependencies = FindOptionsToDependencies(this, options)
-				if (persistanceType == 'fs' && !options.raw) {
+				if (persistanceType != 'mem' && !options.raw) {
 					if (Array.isArray(result)) {
 						sub.resolve([result.map(getRawDataValues), dependencies])
 					} else if (result) {
