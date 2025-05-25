@@ -8,9 +8,11 @@ import { PromiseSub } from "./utils/promise";
 import * as ObjectLib from "./utils/object";
 import { ensureNoCycle } from "./utils/string";
 import { afterRootCommit, FindOptionsToDependencies, getRawDataValues, sanitizeDataValues, SeqModel } from "./utils/sequelize";
+import { AsyncCache } from "./utils/asyncCache";
 
 interface QueryCacheServiceConstructorOptions {
 	sequelize: Sequelize;
+	asyncCachePort: number;
 	redis?: Redis;
 	lifespan?: number;
 	debug?: boolean;
@@ -46,7 +48,9 @@ export class QueryCacheService {
 		if (id in QueryCacheService.cachePerSequelize) {
 			this.cache = QueryCacheService.cachePerSequelize[id].cache
 		} else {
-			this.cache = new Cache({ cachePath: `QueryCacheService/${id}`, redis })
+			this.cache = options.asyncCachePort ?
+				new AsyncCache({ cachePath: `QueryCacheService/${id}`, redis, port: options.asyncCachePort })
+				: new Cache({ cachePath: `QueryCacheService/${id}`, redis })
 			QueryCacheService.cachePerSequelize[id] = {
 				sequelize,
 				cache: this.cache,
